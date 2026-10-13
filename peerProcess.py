@@ -37,11 +37,124 @@ class PeerProcess:
         self.stop_event = threading.Event()
         self.listener = None #listening socket
         self.accept_thread = None # ^ the thread calling accept() on that socket
-        self._workers = []
-        self._pending_sockets = set() #sockets still connecting/handshaking before being assigned to a Peer object
-        self._lifecycle_lock = threading.Lock() #Protect connection workers during shutdown
 
         #TODO later: scheduler, piece selection/storage, and completion detection.
+
+
+    def start(self):
+        #create directory for this peer's shared-file data
+        folder = self.working_directory / f"peer_{self.local_id}"
+        folder.mkdir(exist_ok=True)
+        # ^ Place the seed file here before starting a peer with has_file = 1.
+
+        #set up listener socket
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.bind((self.local_info["hostname"], self.local_info["port"]))
+        self.listener.listen()
+        self.listener.settimeout(0.5)
+        #thread that loops and constantly monitors listener socket to accept connections & connect socket to correct peer object
+        #this only handles peer ids AHEAD of ours, it never connects with peer ids before ours.
+        self.accept_thread = threading.Thread(
+            target=self._accept_loop, name=f"accept-{self.local_id}")
+        self.accept_thread.start()
+        #connect to peers before us
+        for remote_id in self.earlier_ids:
+            if self.stop_event.is_set():
+                break
+            self._connect_earlier(remote_id)
+
+    @staticmethod
+    def _close_socket(sock):
+        try:
+            sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        sock.close()
+
+    def _accept_loop(self):
+        # this thread handles the handshake and attaches the socket based off handshake result's peer id.
+        while not self.stop_event.is_set():
+            try:
+                sock, _address = self.listener.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                self.stop_event.set()
+                break
+
+            self._establish(sock, None)
+
+    def _connect_earlier(self, remote_id):
+        peer = self.peers[remote_id]
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+
+        connected = False
+        try:
+            sock.connect((peer.hostname, peer.port))
+            connected = True
+        except OSError as error:
+            print(f"Could not connect to {remote_id}: {error}")
+            return
+        finally:
+            if not connected:
+                sock.close()
+
+        self._establish(sock, remote_id)
+
+    def _establish(self, sock, expected_id):
+        attached = False
+        try:
+            sock.settimeout(5)  # Stop waiting if the handshake stalls
+            remote_id = exchange_handshake(sock, self.local_id, expected_id)
+            if expected_id is None and remote_id not in self.later_ids:
+                raise ProtocolError("Incoming ID must be a later configured peer")
+            sock.settimeout(None)
+            with self.state_lock:
+                if self.stop_event.is_set():
+                    return
+                peer = self.peers[remote_id]
+                # Log the connection before its reader handles messages.
+                self.logger.log("connection", remote_id=remote_id,
+                                outgoing=expected_id is not None)
+                peer.connected = True
+                peer.start(sock, self.local_bitfield.copy(),
+                           self.handle_message, self.handle_disconnect)
+                attached = True
+            print(f"Peer {self.local_id}: handshake complete with {remote_id}")
+        except (OSError, EOFError, ValueError, RuntimeError) as error:
+            if not self.stop_event.is_set():
+                print(f"Connection rejected/failed: {error}", file=sys.stderr)
+        finally:
+            if not attached:
+                self._close_socket(sock)
+
+    def run(self):
+        try:
+            self.start()
+            print(f"Peer {self.local_id} running; Ctrl+C to stop")
+            while not self.stop_event.wait(0.5):
+                pass
+        except KeyboardInterrupt:
+            print(f"Stopping peer {self.local_id}")
+        finally:
+            self.shutdown()
+
+    def shutdown(self):
+        self.stop_event.set()
+
+        if self.listener is not None:
+            self._close_socket(self.listener)
+
+        if self.accept_thread is not None:
+            self.accept_thread.join()
+
+        for peer in self.peers.values():
+            peer.close()
+
+        for peer in self.peers.values():
+            peer.join()
+
 
 def main():
     arguments = argparse.ArgumentParser(description="P2P midpoint peer process")
