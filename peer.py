@@ -125,75 +125,122 @@ class Peer:
         self._on_disconnect = None
         self._first_message = True
 
-        def start(self, sock, local_bits, on_message, on_disconnect):
-            """Attach a socket after it's been identified and start its peer's two I/O threads.
+    @staticmethod
+    # builds the entire outgoing message, 4-byte length + 1-byte type + payload
+    def _frame(message_type, payload=b""):
+        return UINT32.pack(1 + len(payload)) + bytes([message_type]) + payload
 
-            local_bits is our own local bitfield (every piece of the file we have on our own computer)
-            on_message is a function passed in as a parameter that the reader thread later calls. the on_message function
-            in peerProcess.py then dispatches to the necessary function, which just ends up writing to the queue and being
-            consumed by the writer thread.
+    def _enqueue(self, message_type, payload=b""):
+        # puts complete message into outgoing queue for writer to consume
+        with self._socket_lock:
+            if self.socket is None or self._stopped.is_set():
+                raise ConnectionError(f"Peer {self.peer_id} is not connected")
+            self._outgoing.put(self._frame(message_type, payload))
 
-            on_disconnect does a similar thing, but for disconnecting from a peer.
+    def choke(self):
+        self._enqueue(MESSAGE_TYPES["CHOKE"])
 
-            A peer instance represents one connection.
-            """
-            with self._socket_lock:
-                if self.socket is not None or self._stopped.is_set():
-                    raise RuntimeError("This Peer already had a connection")
-                self.socket = sock
-                self._on_message = on_message
-                self._on_disconnect = on_disconnect
-                if any(local_bits):
-                    self._outgoing.put(self._frame(
-                        MESSAGE_TYPES["BITFIELD"], pack_bitfield(local_bits)))
+    def unchoke(self):
+        self._enqueue(MESSAGE_TYPES["UNCHOKE"])
 
-            self.writer_thread = threading.Thread(
-                target=self._write_loop, name=f"writer-{self.peer_id}")
-            self.reader_thread = threading.Thread(
-                target=self._read_loop, name=f"reader-{self.peer_id}")
-            self.writer_thread.start()
-            self.reader_thread.start()
+    def interested(self):
+        self._enqueue(MESSAGE_TYPES["INTERESTED"])
+
+    def not_interested(self):
+        self._enqueue(MESSAGE_TYPES["NOT_INTERESTED"])
+
+    def have(self, piece_index):
+        self._check_index(piece_index)
+        self._enqueue(MESSAGE_TYPES["HAVE"], UINT32.pack(piece_index))
+
+    def request(self, piece_index):
+        # Future process-level (as in peerProcess.py) code must check if already requested and reserve BEFORE this call.
+        self._check_index(piece_index)
+        self._enqueue(MESSAGE_TYPES["REQUEST"], UINT32.pack(piece_index))
+
+    def piece(self, piece_index, data):
+        # Future process-level code must check if choked first.
+        self._check_index(piece_index)
+        self._enqueue(MESSAGE_TYPES["PIECE"], UINT32.pack(piece_index) + data)
+
+    def _check_index(self, index):
+        if not 0 <= index < self.piece_count:
+            raise ProtocolError("Piece index outside this file")
+
+    def _piece_length(self, index):
+        return min(self.piece_size, self.file_size - index * self.piece_size)
 
 
-        def _read_loop(self):
-            reason = "Connection closed"
+
+    def start(self, sock, local_bits, on_message, on_disconnect):
+        """Attach a socket after it's been identified and start its peer's two I/O threads.
+
+        local_bits is our own local bitfield (every piece of the file we have on our own computer)
+        on_message is a function passed in as a parameter that the reader thread later calls. the on_message function
+        in peerProcess.py then dispatches to the necessary function, which just ends up writing to the queue and being
+        consumed by the writer thread.
+
+        on_disconnect does a similar thing, but for disconnecting from a peer.
+
+        A peer instance represents one connection.
+        """
+        with self._socket_lock:
+            if self.socket is not None or self._stopped.is_set():
+                raise RuntimeError("This Peer already had a connection")
+            self.socket = sock
+            self._on_message = on_message
+            self._on_disconnect = on_disconnect
+            if any(local_bits):
+                self._outgoing.put(self._frame(
+                    MESSAGE_TYPES["BITFIELD"], pack_bitfield(local_bits)))
+
+        self.writer_thread = threading.Thread(
+            target=self._write_loop, name=f"writer-{self.peer_id}")
+        self.reader_thread = threading.Thread(
+            target=self._read_loop, name=f"reader-{self.peer_id}")
+        self.writer_thread.start()
+        self.reader_thread.start()
+
+
+    def _read_loop(self):
+        reason = "Connection closed"
+        try:
+            while not self._stopped.is_set():
+                kind, value = self._read_message()
+                self._on_message(self, kind, value)
+        except (OSError, EOFError, ValueError, NotImplementedError) as error:
+            reason = str(error)
+        finally:
+            self.close()
+            self._on_disconnect(self, reason)
+
+    def _write_loop(self):
+        try:
+            while not self._stopped.is_set():
+                message = self._outgoing.get()
+                if message is None:
+                    break
+                self.socket.sendall(message)
+        except OSError:
+            self.close()
+
+    def close(self):
+        #Socket close method for testing, not really gonna use this in the real implementation
+        with self._socket_lock:
+            if self._stopped.is_set():
+                return
+            self._stopped.set()
+            self._outgoing.put(None)
+            sock = self.socket
+        if sock is not None:
             try:
-                while not self._stopped.is_set():
-                    kind, value = self._read_message()
-                    self._on_message(self, kind, value)
-            except (OSError, EOFError, ValueError, NotImplementedError) as error:
-                reason = str(error)
-            finally:
-                self.close()
-                self._on_disconnect(self, reason)
-
-        def _write_loop(self):
-            try:
-                while not self._stopped.is_set():
-                    message = self._outgoing.get()
-                    if message is None:
-                        break
-                    self.socket.sendall(message)
+                sock.shutdown(socket.SHUT_RDWR)
             except OSError:
-                self.close()
+                pass
+            sock.close()
 
-        def close(self):
-            #Socket close method for testing, not really gonna use this in the real implementation
-            with self._socket_lock:
-                if self._stopped.is_set():
-                    return
-                self._stopped.set()
-                self._outgoing.put(None)
-                sock = self.socket
-            if sock is not None:
-                try:
-                    sock.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-                sock.close()
-
-        def join(self):
-            #Called by process shutdown, just ends the reader and writer threads
-            for thread in (self.reader_thread, self.writer_thread):
-                if thread is not None and thread is not threading.current_thread():
-                    thread.join()
+    def join(self):
+        #Called by process shutdown, just ends the reader and writer threads
+        for thread in (self.reader_thread, self.writer_thread):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join()
