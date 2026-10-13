@@ -42,3 +42,31 @@ class PeerProcess:
         self._lifecycle_lock = threading.Lock() #Protect connection workers during shutdown
 
         #TODO later: scheduler, piece selection/storage, and completion detection.
+
+def main():
+    arguments = argparse.ArgumentParser(description="P2P midpoint peer process")
+    arguments.add_argument("peer_id", type=int)
+    args = arguments.parse_args()
+    working_directory = Path.cwd()
+    log = None
+    try:
+        # TODO (config): implement these agreed interfaces in config.py
+        from config import load_common, load_peers
+        common = load_common(working_directory / "Common.cfg")
+        peer_rows = load_peers(working_directory / "PeerInfo.cfg")
+
+        # TODO (logger): implement this interface in logger.py
+        from logger import PeerLogger
+        log = PeerLogger(args.peer_id, working_directory)
+        process = PeerProcess(args.peer_id, common, peer_rows, log, working_directory)
+        process.run()
+    except (OSError, ValueError, NotImplementedError) as error:
+        print(f"Startup failed: {error}")
+        return 1
+    finally:
+        if log is not None:
+            log.close()
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
