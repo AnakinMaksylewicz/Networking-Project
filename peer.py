@@ -93,3 +93,46 @@ def unpack_bitfield(payload, piece_count):
         raise ProtocolError("Bitfield padding bits must be zero")
     return [bool(payload[i // 8] & (1 << (7 - i % 8)))
             for i in range(piece_count)]
+
+class Peer:
+    """Class that represents another running peer
+
+    Very simple; a reader and a writer thread are constantly running. The reader reads messages from the incoming socket.
+    When we call methods on the peer (for example, if we want to request a piece from a peer), those methods add on to
+    a queue. The writer thread reads drains this queue and writes to the socket.
+    """
+
+    def __init__(self, peer_id, hostname, port, initially_has_file,
+                 piece_count, file_size, piece_size):
+        self.peer_id = peer_id
+        self.hostname = hostname
+        self.port = port
+        self.initially_has_file = initially_has_file
+        self.piece_count = piece_count
+        self.file_size = file_size
+        self.piece_size = piece_size
+
+        #availability starts unknown/empty until a bitfield or have message
+        self.bitfield = [False] * piece_count
+        self.bitfield_received = False
+        self.connected = False
+        self.am_choking = True
+        self.peer_choking = True
+        self.am_interested = False
+        self.peer_interested = False
+        self.interest_announced = False
+        self.is_preferred = False
+        self.is_optimistic = False
+        self.pending_request = None
+        self.bytes_received_interval = 0
+
+        self.socket = None
+        self.reader_thread = None
+        self.writer_thread = None
+        self._outgoing = queue.Queue()
+        self._stopped = threading.Event()
+        self._socket_lock = threading.Lock()
+        self._on_message = None
+        self._on_disconnect = None
+        self._first_message = True
+
