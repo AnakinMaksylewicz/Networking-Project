@@ -110,6 +110,7 @@ class Peer:
         self.peer_choking = True #THEY are choking us
         self.am_interested = False
         self.peer_interested = False
+        self.interest_announced = False  # Whether we've announced our interest to this neighbor.
         self.is_preferred = False
         self.is_optimistic = False
         self.pending_request = None

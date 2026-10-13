@@ -129,6 +129,71 @@ class PeerProcess:
             if not attached:
                 self._close_socket(sock)
 
+    def handle_message(self, peer, kind, value):
+        """ This is the function we pass in to peer.start() that changes a peer's attributes based on info and decides whether
+        to respond to a message. Called by the reader thread after decoding a message.
+
+        peer = the remote Peer object that sent it.
+        kind = an integer from MESSAGE_TYPES, literally just the message type
+        value = decoded payload: bitfield list, piece index, or None.
+
+        Use peer methods to queue outgoing messages. Do not write to sockets
+        directly or create threads here."""
+
+        with self.state_lock:
+            if self.stop_event.is_set() or not peer.connected:
+                return
+
+                # TODO: Handle BITFIELD, HAVE, INTERESTED, NOT_INTERESTED,
+                # CHOKE, and UNCHOKE according to the project description.
+                #
+                # Update the sender's availability, interest, or choke state as
+                # appropriate.
+                # Changes to piece availability should trigger _update_interest().
+                #
+                # Write receive-event logs through self.logger.
+                # Use Peer methods to queue any responses; no direct socket writes
+                # or new threads here. Only use update_interest to queue
+                # responses, since we haven't implemented file transfer yet
+                #
+                # REQUEST/PIECE handling and requesting file data are for later,
+                # just leave those unimplemented for now
+                raise NotImplementedError("TODO: handle incoming messages")
+
+    def _update_interest(self, peer):
+        """Compares peer's pieces with ours. If they have something we need, call
+            peer.interested(). Otherwise, call peer.not_interested(). Called while
+            handle_message holds the state lock, don't acquire the lock again here."""
+
+        # TODO: Compare the neighbor's availability with our local bitfield
+        # to determine whether they have anything we still need.
+
+        # Queue using Peer.interested()
+        # Send the initial announcement, then only announce changes (peer class has a self.interest_announced attr for this).
+        # Keep our saved interest and announcement status consistent with it.
+
+        # This concerns OUR interest; preserve THEIR interest in our pieces.
+        # Sending interest announcements does not require logging
+        raise NotImplementedError("TODO: calculate and announce our interest")
+
+    def handle_disconnect(self, peer, reason):
+        #Called by the reader after it closes the connection.
+        #Do not join threads here; process shutdown handles that.
+
+        with self.state_lock:
+            #TODO:
+            #Set peer.connected to False.
+            #Set peer.pending_request to None.
+            #Set peer.is_preferred and peer.is_optimistic to False.
+            #Keep peer.bitfield: disconnecting does not erase known ownership.
+            raise NotImplementedError("TODO: update disconnected peer state")
+
+        if not self.stop_event.is_set():
+            print(
+                f"Peer {peer.peer_id} disconnected: {reason}",
+                file=sys.stderr
+            )
+
     def run(self):
         try:
             self.start()
