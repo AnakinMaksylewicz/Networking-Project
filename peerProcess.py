@@ -85,6 +85,7 @@ class PeerProcess:
             self._establish(sock, None)
 
     def _connect_earlier(self, remote_id):
+        #connect w/ peers earlier in the peerinfo config than us
         peer = self.peers[remote_id]
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
@@ -102,7 +103,8 @@ class PeerProcess:
 
         self._establish(sock, remote_id)
 
-    def _establish(self, sock, expected_id):
+    def _establish(self, sock, expected_id): #connects an accepted socket to a peer object
+                                             #also starts reader and writer thread for peer, allowing for communication
         attached = False
         try:
             sock.settimeout(5)  # Stop waiting if the handshake stalls
@@ -144,21 +146,21 @@ class PeerProcess:
             if self.stop_event.is_set() or not peer.connected:
                 return
 
-                # TODO: Handle BITFIELD, HAVE, INTERESTED, NOT_INTERESTED,
-                # CHOKE, and UNCHOKE according to the project description.
-                #
-                # Update the sender's availability, interest, or choke state as
-                # appropriate.
-                # Changes to piece availability should trigger _update_interest().
-                #
-                # Write receive-event logs through self.logger.
-                # Use Peer methods to queue any responses; no direct socket writes
-                # or new threads here. Only use update_interest to queue
-                # responses, since we haven't implemented file transfer yet
-                #
-                # REQUEST/PIECE handling and requesting file data are for later,
-                # just leave those unimplemented for now
-                raise NotImplementedError("TODO: handle incoming messages")
+            # TODO: Handle BITFIELD, HAVE, INTERESTED, NOT_INTERESTED,
+            # CHOKE, and UNCHOKE according to the project description.
+            #
+            # Update the sender's availability, interest, or choke state as
+            # appropriate.
+            # Changes to piece availability should trigger _update_interest().
+            #
+            # Write receive-event logs through self.logger.
+            # Use Peer methods to queue any responses; no direct socket writes
+            # or new threads here. Only use update_interest to queue
+            # responses, since we haven't implemented file transfer yet
+            #
+            # REQUEST/PIECE handling and requesting file data are for later,
+            # just leave those unimplemented for now
+            raise NotImplementedError("TODO: handle incoming messages")
 
     def _update_interest(self, peer):
         """Compares peer's pieces with ours. If they have something we need, call
