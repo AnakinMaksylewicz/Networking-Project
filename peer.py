@@ -170,7 +170,22 @@ class Peer:
     def _piece_length(self, index):
         return min(self.piece_size, self.file_size - index * self.piece_size)
 
-
+    def _read_message(self):
+        length = UINT32.unpack(receive_exact(self.socket, 4))[0]
+        kind = receive_exact(self.socket, 1)[0]
+        payload = receive_exact(self.socket, length - 1) #length - 1 b/c we already read the one-byte type
+        self._first_message = False
+        if kind == MESSAGE_TYPES["BITFIELD"]:
+            value = unpack_bitfield(payload, self.piece_count)
+        elif kind in (MESSAGE_TYPES["HAVE"], MESSAGE_TYPES["REQUEST"], MESSAGE_TYPES["PIECE"]):
+            index = UINT32.unpack(payload[:4])[0]
+            self._check_index(index)
+            value = index
+            if kind == MESSAGE_TYPES["PIECE"]:
+                value = (index, payload[4:])
+        else:
+            value = None
+        return kind, value
 
     def start(self, sock, local_bits, on_message, on_disconnect):
         """Attach a socket after it's been identified and start its peer's two I/O threads.
