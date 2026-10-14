@@ -81,5 +81,6 @@ class PeerLogger:
             self.file.flush()
 
     def close(self):
-        #TODO: Flush and close the file after networking threads finish.
-        raise NotImplementedError("Logger cleanup is not implemented yet")
+        with self.lock:
+            self.file.flush()
+            self.file.close()
