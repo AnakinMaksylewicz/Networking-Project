@@ -1,10 +1,15 @@
 #Write the required timestamped events to log_peer_<our ID>.log.
-
+import os
+import threading
 
 class PeerLogger:
     def __init__(self, local_id, working_directory):
         #TODO: Open the log in working_directory. Use a lock for concurrent writes.
-        raise NotImplementedError("Logger is not implemented yet")
+        self.local_id = local_id
+        log_path = os.path.join(working_directory, f"log_peer_{local_id}.log")
+
+        self.file = open(log_path, "a")
+        self.lock = threading.Lock()
 
     def log(self, event, **fields):
         #TODO: Write the specification's wording with date/hour/minute/second.
