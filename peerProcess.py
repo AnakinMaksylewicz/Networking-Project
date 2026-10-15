@@ -176,28 +176,33 @@ class PeerProcess:
             peer.interested(). Otherwise, call peer.not_interested(). Called while
             handle_message holds the state lock, don't acquire the lock again here."""
 
-        # TODO: Compare the neighbor's availability with our local bitfield
-        # to determine whether they have anything we still need.
+        # interested if peer has at least 1 relevant piece
+        interested = False
+        for index in range(self.piece_count):
+            if peer.bitfield[index] and not self.local_bitfield[index]:
+                interested = True
+                break
 
-        # Queue using Peer.interested()
-        # Send the initial announcement, then only announce changes (peer class has a self.interest_announced attr for this).
-        # Keep our saved interest and announcement status consistent with it.
+        # if interest not announced or interest changed, send announcement
+        if not peer.interest_announced or interested != peer.am_intested:
+            if interested:
+                peer.interested()
+            else:
+                peer.not_interested()
 
-        # This concerns OUR interest; preserve THEIR interest in our pieces.
-        # Sending interest announcements does not require logging
-        raise NotImplementedError("TODO: calculate and announce our interest")
+        peer.am_interested = interested
+        peer.interest_announced = True
 
     def handle_disconnect(self, peer, reason):
         #Called by the reader after it closes the connection.
         #Do not join threads here; process shutdown handles that.
 
         with self.state_lock:
-            #TODO:
-            #Set peer.connected to False.
-            #Set peer.pending_request to None.
-            #Set peer.is_preferred and peer.is_optimistic to False.
-            #Keep peer.bitfield: disconnecting does not erase known ownership.
-            raise NotImplementedError("TODO: update disconnected peer state")
+            # clean up upon disconnect, bitfield is not touched as pieces are unaffected by disconnect
+            peer.connected = False
+            peer.pending_request = None
+            peer.is_preferred = False
+            peer.is_optimistic = False
 
         if not self.stop_event.is_set():
             print(
