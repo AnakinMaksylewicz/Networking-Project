@@ -184,7 +184,7 @@ class PeerProcess:
                 break
 
         # if interest not announced or interest changed, send announcement
-        if not peer.interest_announced or interested != peer.am_intested:
+        if not peer.interest_announced or interested != peer.am_interested:
             if interested:
                 peer.interested()
             else:
