@@ -142,25 +142,34 @@ class PeerProcess:
         Use peer methods to queue outgoing messages. Do not write to sockets
         directly or create threads here."""
 
+        #protect state and handle exits
         with self.state_lock:
             if self.stop_event.is_set() or not peer.connected:
                 return
 
-            # TODO: Handle BITFIELD, HAVE, INTERESTED, NOT_INTERESTED,
-            # CHOKE, and UNCHOKE according to the project description.
-            #
-            # Update the sender's availability, interest, or choke state as
-            # appropriate.
-            # Changes to piece availability should trigger _update_interest().
-            #
-            # Write receive-event logs through self.logger.
-            # Use Peer methods to queue any responses; no direct socket writes
-            # or new threads here. Only use update_interest to queue
-            # responses, since we haven't implemented file transfer yet
-            #
-            # REQUEST/PIECE handling and requesting file data are for later,
-            # just leave those unimplemented for now
-            raise NotImplementedError("TODO: handle incoming messages")
+            # handle kind (int 0-7)(per spec) corresponding to a value from MESSAGE_TYPES dict in peer.py
+            # update values and log relevant updates such as changes in interest, chokes, and availability
+            if kind == MESSAGE_TYPES["BITFIELD"]:
+                peer.bitfield = value.copy()
+                self._update_interest(peer)
+            elif kind == MESSAGE_TYPES["HAVE"]:
+                peer.bitfield[value] = True
+                self.logger.log("have", remote_id=peer.peer_id, piece_index=value)
+                self._update_interest(peer)
+            elif kind == MESSAGE_TYPES["INTERESTED"]:
+                peer.peer_interested = True
+                self.logger.log("interested", remote_id=peer.peer_id)
+            elif kind == MESSAGE_TYPES["NOT_INTERESTED"]:
+                peer.peer_interested = False
+                self.logger.log("not_interested", remote_id=peer.peer_id)
+            elif kind == MESSAGE_TYPES["CHOKE"]:
+                peer.peer_choking = True
+                self.logger.log("choke", remote_id=peer.peer_id)
+            elif kind == MESSAGE_TYPES["UNCHOKE"]:
+                peer.peer_choking = False
+                self.logger.log("unchoke", remote_id=peer.peer_id)
+
+            # REQUEST/PIECE handling after midpoint submission
 
     def _update_interest(self, peer):
         """Compares peer's pieces with ours. If they have something we need, call
