@@ -38,7 +38,14 @@ class PeerProcess:
         self.listener = None #listening socket
         self.accept_thread = None # ^ the thread calling accept() on that socket
 
-        #TODO later: scheduler, piece selection/storage, and completion detection.
+        #Shared fields that the remaining functions use
+        self.file_path = self.working_directory / f"peer{local_id}" / common["FileName"]
+        self.file = None
+        self.owned_piece_count = self.piece_count if self.complete_file_acquired else 0
+        self.scheduler_thread = None
+        self.preferred_ids = set()
+        self.optimistic_id = None
+        self.all_complete = False
 
 
     def start(self):
