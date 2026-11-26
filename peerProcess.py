@@ -153,7 +153,7 @@ class PeerProcess:
 
         peer = the remote Peer object that sent it.
         kind = an integer from MESSAGE_TYPES, literally just the message type
-        value = decoded payload: bitfield list, piece index, or None.
+        value = decoded payload: bitfield list, piece index, (piece index, piece bytes) tuple or None.
 
         Use peer methods to queue outgoing messages. Do not write to sockets
         directly or create threads here."""
@@ -165,6 +165,8 @@ class PeerProcess:
 
             # handle kind (int 0-7)(per spec) corresponding to a value from MESSAGE_TYPES dict in peer.py
             # update values and log relevant updates such as changes in interest, chokes, and availability
+
+            #TODO: Dennis, request pieces after BITFIELD/HAVE/UNCHOKE; release pending_request and try other peers after CHOKE; dispatch REQUEST to _handle_request(peer, value) and PIECE to _handle_piece(peer, index, data); call _check_completion after processing each message, while still holding state_lock.
             if kind == MESSAGE_TYPES["BITFIELD"]:
                 peer.bitfield = value.copy()
                 self._update_interest(peer)
@@ -218,6 +220,7 @@ class PeerProcess:
             peer.pending_request = None
             peer.is_preferred = False
             peer.is_optimistic = False
+            #TODO: Dennis, if stop_event is not set, call _request_from_available_peers and _check_completion here while state_lock is still held.
 
         if not self.stop_event.is_set():
             print(
@@ -231,6 +234,7 @@ class PeerProcess:
             print(f"Peer {self.local_id} running; Ctrl+C to stop")
             while not self.stop_event.wait(0.5):
                 pass
+            #TODO: Luka, if all_complete is True, print that every peer has completed the download before shutdown runs.
         except KeyboardInterrupt:
             print(f"Stopping peer {self.local_id}")
         finally:
@@ -238,7 +242,7 @@ class PeerProcess:
 
     def shutdown(self):
         self.stop_event.set()
-
+        #TODO: Luka, join scheduler_thread if present before closing peers; when all_complete is True, call finish_sending on every peer before closing any peer; call _close_file after all peer threads have been joined.
         if self.listener is not None:
             self._close_socket(self.listener)
 
