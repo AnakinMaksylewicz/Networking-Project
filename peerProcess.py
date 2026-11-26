@@ -283,6 +283,11 @@ class PeerProcess:
         self.local_bitfield[index] = True
         self.owned_piece_count += 1
         return True
+    def _close_file(self):
+        #close file during shutdown and clear saved handle
+        if self.file is not None:
+            self.file.close()
+            self.file = None
 
 
 def main():
