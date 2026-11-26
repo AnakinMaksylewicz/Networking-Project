@@ -268,6 +268,21 @@ class PeerProcess:
             #piece index times piece size gives its starting byte offset
         self.file.seek(index * self.piece_size)
         return self.file.read(length)
+    def _write_piece(self, index, data):
+        #store a new piece and update ownership; return False is we already have it, return True if we just acquired it
+        #reject incomplete or incorrectly sized pieces
+        if len(data) != self._piece_length(index):
+            raise ValueError("Received piece has wrong length")
+        #Avoid overwriting or counting the same piece twice
+        if self.local_bitfield[index]:
+            return False;
+        self.file.seek(index * self.piece_size)
+        self.file.write(data)
+        #Flush buffered writes before marking a piece as available
+        self.file.flush()
+        self.local_bitfield[index] = True
+        self.owned_piece_count += 1
+        return True
 
 
 def main():
