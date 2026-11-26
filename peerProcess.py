@@ -254,6 +254,11 @@ class PeerProcess:
             self.file = self.file_path.open("w+b")  # create empty file of required size
             #set output size so pieces can be written at their correct offsets
             self.file.truncate(self.file_size)
+    def _piece_length(self, index):
+        #return this piece's byte length; final piece may be shorter
+        if not 0 <= index < self.piece_count:
+            raise ValueError(f"Invalid piece index {index}")
+        return min(self.piece_size, self.file_size - index * self.piece_size)
 
 
 def main():
