@@ -121,6 +121,7 @@ class Peer:
         self.writer_thread = None
         self._outgoing = queue.Queue()
         self._stopped = threading.Event()
+        self._closing = False
         self._socket_lock = threading.Lock()
         self._on_message = None
         self._on_disconnect = None
@@ -134,8 +135,8 @@ class Peer:
     def _enqueue(self, message_type, payload=b""):
         # puts complete message into outgoing queue for writer to consume
         with self._socket_lock:
-            if self.socket is None or self._stopped.is_set():
-                raise ConnectionError(f"Peer {self.peer_id} is not connected")
+            if self.socket is None or self._stopped.is_set() or self._closing:
+                return
             self._outgoing.put(self._frame(message_type, payload))
 
     def choke(self):
@@ -236,6 +237,7 @@ class Peer:
                 message = self._outgoing.get()
                 if message is None:
                     break
+                 #TODO: Luka, if message[4] is MESSAGE_TYPES["PIECE"] and self.am_choking is True, skip this message using continue; send other messages normally.
                 self.socket.sendall(message)
         except OSError:
             self.close()
@@ -245,12 +247,13 @@ class Peer:
         # Stop accepting new outgoing messages, then add None to the end of the outgoing queue.
         # The writer sends msgs already queued, then stops when it reaches None.
         # Set _closing and add None while holding _socket_lock. Release that locok before waiting for writer thread to finish
+        # Handle repeated calls and already stopped peers safely; only join the writer thread if it exists
         # Takes: self
         # Returns: None
         pass
 
     def close(self):
-        #Socket close method for testing, not really gonna use this in the real implementation
+        #close connection during shutdown or after a communication error
         with self._socket_lock:
             if self._stopped.is_set():
                 return
