@@ -259,6 +259,15 @@ class PeerProcess:
         if not 0 <= index < self.piece_count:
             raise ValueError(f"Invalid piece index {index}")
         return min(self.piece_size, self.file_size - index * self.piece_size)
+    def _read_piece(self, index):
+        #read an owned piece from its position in the file so we can upload it
+        #CALLED W/ STATE_LOCK HELD SO FILE SEEKS CAN'T OVERLAP
+        length = self._piece_length(index)
+        if not self.local_bitfield[index]:
+            raise ValueError(f"Cannot read piece {index} we don't own")
+            #piece index times piece size gives its starting byte offset
+        self.file.seek(index * self.piece_size)
+        return self.file.read(length)
 
 
 def main():
