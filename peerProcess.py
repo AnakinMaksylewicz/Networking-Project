@@ -185,7 +185,6 @@ class PeerProcess:
                 peer.peer_choking = False
                 self.logger.log("unchoke", remote_id=peer.peer_id)
 
-            # REQUEST/PIECE handling after midpoint submission
 
     def _update_interest(self, peer):
         """Compares peer's pieces with ours. If they have something we need, call
@@ -298,10 +297,92 @@ class PeerProcess:
             self.file.close()
             self.file = None
 
-    def _scheduler_loop(self):
+    def _request_next(self, peer):
+        #TODO: Dennis
+        # Randomly select a piece this peer has that we lack and that is not
+        # already requested from another peer. Reserve it in pending_request
+        # before sending the request. Skip disconnected/choking peers or
+        # peers that already have a pending request. Caller holds state_lock.
+        # Takes: self, peer (remote Peer object)
+        # Returns: None
         pass
-    
+
+    def _request_from_available_peers(self):
+        #TODO: Dennis
+        # Call _request_next for each peer to request pieces wherever possible.
+        # Caller holds state_lock.
+        # Takes: self
+        # Returns: None
+        pass
+
+    def _scheduler_loop(self):
+        #TODO: Adi
+        # Run preferred and optimistic neighbor selection at their respective
+        # configured intervals until stop_event is set. Hold state_lock while
+        # updating neighbor selections; do not hold it while waiting.
+        # Takes: self
+        # Returns: None
+        pass
+
+    def _choose_preferred(self):
+        #TODO: Adi
+        # Choose up to NumberOfPreferredNeighbors connected, interested peers
+        # by bytes received during the interval, breaking ties randomly.
+        # If our file is complete, choose randomly instead. Update preferred_ids
+        # and peer.is_preferred, reset interval byte counters, log selection
+        # changes, and call _apply_choking. Caller holds state_lock.
+        # Takes: self
+        # Returns: None
+        pass
+
+    def _choose_optimistic(self):
+        #TODO: Adi
+        # Randomly choose a connected, interested, currently choked peer.
+        # If none is available, retain the existing optimistic peer if still
+        # connected and interested; otherwise clear the selection. Update
+        # optimistic_id and peer.is_optimistic, log a new selection, and call
+        # _apply_choking. Caller holds state_lock.
+        # Takes: self
+        # Returns: None
+        pass
+
+    def _apply_choking(self):
+        #TODO: Adi
+        # Unchoke connected peers that are preferred or optimistic; choke
+        # all other connected peers. Update am_choking and send CHOKE/UNCHOKE
+        # only when that state changes. Caller holds state_lock.
+        # Takes: self
+        # Returns: None
+        pass
+
+    def _handle_request(self, peer, index):
+        #TODO: Luka
+        # If we own the requested piece and are not choking this peer,
+        # read it using _read_piece and send it using peer.piece.
+        # Caller holds state_lock.
+        # Takes: self, peer (requesting Peer object), index (integer piece index)
+        # Returns: None
+        pass
+
+    def _handle_piece(self, peer, index, data):
+        #TODO: Luka
+        # Clear this peer's pending request only if it matches index.
+        # Store the piece using _write_piece and update received-byte statistics.
+        # For a newly acquired piece, log the download, announce HAVE to
+        # connected peers, and update interest. Mark and log local completion
+        # once all pieces are owned. Request more pieces afterward, including
+        # after duplicate arrivals. Caller holds state_lock.
+        # Takes: self, peer (sending Peer object), index (integer piece index), data (piece contents as bytes)
+        # Returns: None
+        pass
+
     def _check_completion(self):
+        #TODO: Luka
+        # Check that our file is complete and every configured remote peer's
+        # bitfield contains all pieces. If so, set all_complete to True and
+        # signal stop_event. Caller holds state_lock.
+        # Takes: self
+        # Returns: None
         pass
 
 
@@ -312,12 +393,10 @@ def main():
     working_directory = Path.cwd()
     log = None
     try:
-        # TODO (config): implement these agreed interfaces in config.py
         from config import load_common, load_peers
         common = load_common(working_directory / "Common.cfg")
         peer_rows = load_peers(working_directory / "PeerInfo.cfg")
 
-        # TODO (logger): implement this interface in logger.py
         from logger import PeerLogger
         log = PeerLogger(args.peer_id, working_directory)
         process = PeerProcess(args.peer_id, common, peer_rows, log, working_directory)
