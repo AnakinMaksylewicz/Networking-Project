@@ -38,14 +38,14 @@ class PeerProcess:
         self.listener = None #listening socket
         self.accept_thread = None # ^ the thread calling accept() on that socket
 
-        #Shared fields that the remaining functions use
+        #Shared fields for file storage, neighbor selection, and completion detection
         self.file_path = self.working_directory / f"peer{local_id}" / common["FileName"]
-        self.file = None
+        self.file = None #file handle assigned when we open our local handle
         self.owned_piece_count = self.piece_count if self.complete_file_acquired else 0
-        self.scheduler_thread = None
+        self.scheduler_thread = None #periodically selects neighbors to unchoke
         self.preferred_ids = set()
-        self.optimistic_id = None
-        self.all_complete = False
+        self.optimistic_id = None #id of current optimistically unchoked neighbor
+        self.all_complete = False #true only when every peer has whole file
 
 
     def start(self):
@@ -242,6 +242,18 @@ class PeerProcess:
 
         for peer in self.peers.values():
             peer.join()
+
+    def _open_file(self):
+        #Open existing seed or create an empty download file of required size
+        if self.complete_file_acquired:
+            #ensure seed's size matches the config
+            if self.file_path.stat().st_size != self.file_size:
+                raise ValueError(f"Seed must contain {self.file_size} bytes: {self.file_path}")
+            self.file_path.open("rb")  # open for reading only
+        else:
+            self.file = self.file_path.open("w+b")  # create empty file of required size
+            #set output size so pieces can be written at their correct offsets
+            self.file.truncate(self.file_size)
 
 
 def main():
