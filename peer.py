@@ -240,6 +240,15 @@ class Peer:
         except OSError:
             self.close()
 
+    def finish_sending(self):
+        #TODO: Luka
+        # Stop accepting new outgoing messages, then add None to the end of the outgoing queue.
+        # The writer sends msgs already queued, then stops when it reaches None.
+        # Set _closing and add None while holding _socket_lock. Release that locok before waiting for writer thread to finish
+        # Takes: self
+        # Returns: None
+        pass
+
     def close(self):
         #Socket close method for testing, not really gonna use this in the real implementation
         with self._socket_lock:
