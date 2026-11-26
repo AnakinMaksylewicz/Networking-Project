@@ -39,7 +39,7 @@ class PeerProcess:
         self.accept_thread = None # ^ the thread calling accept() on that socket
 
         #Shared fields for file storage, neighbor selection, and completion detection
-        self.file_path = self.working_directory / f"peer{local_id}" / common["FileName"]
+        self.file_path = self.working_directory / f"peer_{local_id}" / common["FileName"]
         self.file = None #file handle assigned when we open our local handle
         self.owned_piece_count = self.piece_count if self.complete_file_acquired else 0
         self.scheduler_thread = None #periodically selects neighbors to unchoke
@@ -249,7 +249,7 @@ class PeerProcess:
             #ensure seed's size matches the config
             if self.file_path.stat().st_size != self.file_size:
                 raise ValueError(f"Seed must contain {self.file_size} bytes: {self.file_path}")
-            self.file_path.open("rb")  # open for reading only
+            self.file = self.file_path.open("rb")  # open for reading only
         else:
             self.file = self.file_path.open("w+b")  # create empty file of required size
             #set output size so pieces can be written at their correct offsets
@@ -275,7 +275,7 @@ class PeerProcess:
             raise ValueError("Received piece has wrong length")
         #Avoid overwriting or counting the same piece twice
         if self.local_bitfield[index]:
-            return False;
+            return False
         self.file.seek(index * self.piece_size)
         self.file.write(data)
         #Flush buffered writes before marking a piece as available
