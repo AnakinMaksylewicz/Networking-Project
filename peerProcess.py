@@ -53,6 +53,8 @@ class PeerProcess:
         folder = self.working_directory / f"peer_{self.local_id}"
         folder.mkdir(exist_ok=True)
         # ^ Place the seed file here before starting a peer with has_file = 1.
+        #prepare file before connections can request pieces
+        self._open_file()
 
         #set up listener socket
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -64,11 +66,18 @@ class PeerProcess:
         self.accept_thread = threading.Thread(
             target=self._accept_loop, name=f"accept-{self.local_id}")
         self.accept_thread.start()
+        #Run neighbor selection in background
+        self.scheduler_thread = threading.Thread(
+            target=self._scheduler_loop, name=f"scheduler-{self.local_id}")
+        self.scheduler_thread.start()
         #connect to peers before us
         for remote_id in self.earlier_ids:
             if self.stop_event.is_set():
                 break
             self._connect_earlier(remote_id)
+        #check whether everyone is already complete
+        with self.state_lock:
+            self._check_completion()
 
     @staticmethod
     def _close_socket(sock):
@@ -288,6 +297,12 @@ class PeerProcess:
         if self.file is not None:
             self.file.close()
             self.file = None
+
+    def _scheduler_loop(self):
+        pass
+    
+    def _check_completion(self):
+        pass
 
 
 def main():
