@@ -242,18 +242,27 @@ class PeerProcess:
 
     def shutdown(self):
         self.stop_event.set()
-        #TODO: Luka, join scheduler_thread if present before closing peers; when all_complete is True, call finish_sending on every peer before closing any peer; call _close_file after all peer threads have been joined.
+        
         if self.listener is not None:
             self._close_socket(self.listener)
 
         if self.accept_thread is not None:
             self.accept_thread.join()
 
+        if self.scheduler_thread is not None:
+            self.scheduler_thread.join()
+
+        if self.all_complete:
+            for peer in self.peers.values():
+                peer.finish_sending()
+
         for peer in self.peers.values():
             peer.close()
 
         for peer in self.peers.values():
             peer.join()
+
+        self._close_file()
 
     def _open_file(self):
         #Open existing seed or create an empty download file of required size
