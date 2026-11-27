@@ -244,14 +244,13 @@ class Peer:
             self.close()
 
     def finish_sending(self):
-        #TODO: Luka
-        # Stop accepting new outgoing messages, then add None to the end of the outgoing queue.
-        # The writer sends msgs already queued, then stops when it reaches None.
-        # Set _closing and add None while holding _socket_lock. Release that locok before waiting for writer thread to finish
-        # Handle repeated calls and already stopped peers safely; only join the writer thread if it exists
-        # Takes: self
-        # Returns: None
-        pass
+        with self._socket_lock:
+            if not self._closing and not self._stopped.is_set():
+                self._closing = True
+                self._outgoing.put(None)
+
+        if self.writer_thread is not None:
+            self.writer_thread.join()
 
     def close(self):
         #close connection during shutdown or after a communication error
