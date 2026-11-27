@@ -370,16 +370,26 @@ class PeerProcess:
         peer.piece(index, data)
 
     def _handle_piece(self, peer, index, data):
-        #TODO: Luka
-        # Clear this peer's pending request only if it matches index.
-        # Store the piece using _write_piece and update received-byte statistics.
-        # For a newly acquired piece, log the download, announce HAVE to
-        # connected peers, and update interest. Mark and log local completion
-        # once all pieces are owned. Request more pieces afterward, including
-        # after duplicate arrivals. Caller holds state_lock.
-        # Takes: self, peer (sending Peer object), index (integer piece index), data (piece contents as bytes)
-        # Returns: None
-        pass
+        if peer.pending_request == index:
+            peer.pending_request = None
+
+        newly_acquired = self._write_piece(index, data)
+        peer.bytes_received_interval += len(data)
+
+        if newly_acquired:
+            self.logger.log("downloaded_piece", remote_id=peer.peer_id,
+                            piece_index=index, piece_count=self.owned_piece_count)
+
+            for other in self.peers.values():
+                if other.connected:
+                    other.have(index)
+                    self._update_interest(other)
+
+            if self.owned_piece_count == self.piece_count and not self.complete_file_acquired:
+                self.complete_file_acquired = True
+                self.logger.log("complete")
+
+        self._request_next(peer)
 
     def _check_completion(self):
         #TODO: Luka
