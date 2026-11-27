@@ -234,7 +234,8 @@ class PeerProcess:
             print(f"Peer {self.local_id} running; Ctrl+C to stop")
             while not self.stop_event.wait(0.5):
                 pass
-            #TODO: Luka, if all_complete is True, print that every peer has completed the download before shutdown runs.
+            if self.all_complete:
+                print(f"Peer {self.local_id}: all peers have completed the download")
         except KeyboardInterrupt:
             print(f"Stopping peer {self.local_id}")
         finally:
