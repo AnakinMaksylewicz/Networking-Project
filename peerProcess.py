@@ -360,13 +360,14 @@ class PeerProcess:
         pass
 
     def _handle_request(self, peer, index):
-        #TODO: Luka
-        # If we own the requested piece and are not choking this peer,
-        # read it using _read_piece and send it using peer.piece.
-        # Caller holds state_lock.
-        # Takes: self, peer (requesting Peer object), index (integer piece index)
-        # Returns: None
-        pass
+        if not self.local_bitfield[index]:
+            return
+
+        if peer.am_choking:
+            return
+
+        data = self._read_piece(index)
+        peer.piece(index, data)
 
     def _handle_piece(self, peer, index, data):
         #TODO: Luka
