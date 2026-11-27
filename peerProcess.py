@@ -1,9 +1,11 @@
 #This is basically our main.py, it parses the config, coordinates connections, shared state, and shutdown.
 
 import argparse
+import random
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 from peer import MESSAGE_TYPES, Peer, ProtocolError, exchange_handshake
@@ -330,44 +332,85 @@ class PeerProcess:
         pass
 
     def _scheduler_loop(self):
-        #TODO: Adi
-        # Run preferred and optimistic neighbor selection at their respective
-        # configured intervals until stop_event is set. Hold state_lock while
-        # updating neighbor selections; do not hold it while waiting.
-        # Takes: self
-        # Returns: None
-        pass
+        #Re-pick preferred neighbors every p seconds and the optimistic one every m seconds.      
+        preferred_interval = self.common["UnchokingInterval"]
+        optimistic_interval = self.common["OptimisticUnchokingInterval"]
+        now = time.monotonic()
+        next_preferred = now + preferred_interval
+        next_optimistic = now + optimistic_interval
+        while True:
+            #wait without the lock; returns True early on shutdown
+            delay = max(0.0, min(next_preferred, next_optimistic) - time.monotonic())
+            if self.stop_event.wait(delay):
+                return
+            now = time.monotonic()
+            with self.state_lock:
+                if self.stop_event.is_set():
+                    return
+                #preferred first so optimistic knows who's already unchoked
+                if now >= next_preferred:
+                    self._choose_preferred()
+                    next_preferred = now + preferred_interval
+                if now >= next_optimistic:
+                    self._choose_optimistic()
+                    next_optimistic = now + optimistic_interval
 
     def _choose_preferred(self):
-        #TODO: Adi
-        # Choose up to NumberOfPreferredNeighbors connected, interested peers
-        # by bytes received during the interval, breaking ties randomly.
-        # If our file is complete, choose randomly instead. Update preferred_ids
-        # and peer.is_preferred, reset interval byte counters, log selection
-        # changes, and call _apply_choking. Caller holds state_lock.
-        # Takes: self
-        # Returns: None
-        pass
+        #Top k interested peers by download rate; random if we already have the file.
+        k = self.common["NumberOfPreferredNeighbors"]
+        candidates = [p for p in self.peers.values() if p.connected and p.peer_interested]
+
+        random.shuffle(candidates) #shuffle + stable sort = random tie-breaking
+        if not self.complete_file_acquired:
+            candidates.sort(key=lambda p: p.bytes_received_interval, reverse=True)
+        new_ids = {p.peer_id for p in candidates[:k]}
+
+        for peer in self.peers.values():
+            peer.is_preferred = peer.peer_id in new_ids
+            peer.bytes_received_interval = 0 #reset for next interval
+
+        #log only on change; skip empty set
+        if new_ids != self.preferred_ids and new_ids:
+            self.logger.log("preferred", peer_ids=sorted(new_ids))
+        self.preferred_ids = new_ids
+
+        self._apply_choking()
 
     def _choose_optimistic(self):
-        #TODO: Adi
-        # Randomly choose a connected, interested, currently choked peer.
-        # If none is available, retain the existing optimistic peer if still
-        # connected and interested; otherwise clear the selection. Update
-        # optimistic_id and peer.is_optimistic, log a new selection, and call
-        # _apply_choking. Caller holds state_lock.
-        # Takes: self
-        # Returns: None
-        pass
+        #Unchoke one random interested peer that's currently choked.
+        candidates = [p for p in self.peers.values()
+                      if p.connected and p.peer_interested and p.am_choking]
+        current = self.peers.get(self.optimistic_id)
+
+        if candidates:
+            chosen = random.choice(candidates)
+        elif current is not None and current.connected and current.peer_interested:
+            chosen = current #no one else to pick, keep current
+        else:
+            chosen = None
+
+        for peer in self.peers.values():
+            peer.is_optimistic = peer is chosen
+
+        new_id = chosen.peer_id if chosen is not None else None
+        if new_id is not None and new_id != self.optimistic_id:
+            self.logger.log("optimistic", remote_id=new_id)
+        self.optimistic_id = new_id
+
+        self._apply_choking()
 
     def _apply_choking(self):
-        #TODO: Adi
-        # Unchoke connected peers that are preferred or optimistic; choke
-        # all other connected peers. Update am_choking and send CHOKE/UNCHOKE
-        # only when that state changes. Caller holds state_lock.
-        # Takes: self
-        # Returns: None
-        pass
+        #Unchoke preferred/optimistic peers, choke the rest. Only send on state change.
+        for peer in self.peers.values():
+            if not peer.connected:
+                continue
+            should_unchoke = peer.is_preferred or peer.is_optimistic
+            if should_unchoke and peer.am_choking:
+                peer.am_choking = False
+                peer.unchoke()
+            elif not should_unchoke and not peer.am_choking:
+                peer.am_choking = True
+                peer.choke()
 
     def _handle_request(self, peer, index):
         if not self.local_bitfield[index]:
