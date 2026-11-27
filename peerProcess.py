@@ -392,13 +392,13 @@ class PeerProcess:
         self._request_next(peer)
 
     def _check_completion(self):
-        #TODO: Luka
-        # Check that our file is complete and every configured remote peer's
-        # bitfield contains all pieces. If so, set all_complete to True and
-        # signal stop_event. Caller holds state_lock.
-        # Takes: self
-        # Returns: None
-        pass
+        if not self.complete_file_acquired:
+            return
+        for peer in self.peers.values():
+            if not all(peer.bitfield):
+                return
+        self.all_complete = True
+        self.stop_event.set()
 
 
 def main():
