@@ -237,7 +237,8 @@ class Peer:
                 message = self._outgoing.get()
                 if message is None:
                     break
-                 #TODO: Luka, if message[4] is MESSAGE_TYPES["PIECE"] and self.am_choking is True, skip this message using continue; send other messages normally.
+                if message[4] == MESSAGE_TYPES["PIECE"] and self.am_choking:
+                    continue
                 self.socket.sendall(message)
         except OSError:
             self.close()
