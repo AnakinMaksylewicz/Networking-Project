@@ -167,15 +167,20 @@ class PeerProcess:
 
             # handle kind (int 0-7)(per spec) corresponding to a value from MESSAGE_TYPES dict in peer.py
             # update values and log relevant updates such as changes in interest, chokes, and availability
+            # request pieces after BITFIELD/HAVE/UNCHOKE
+            # release pending_request and try other peers after CHOKE
+            # dispatch REQUEST to _handle_request(peer, value) and PIECE to _handle_piece(peer, index, data)
+            # call _check_completion after processing each message, while still holding state_lock.
 
-            #TODO: Dennis, request pieces after BITFIELD/HAVE/UNCHOKE; release pending_request and try other peers after CHOKE; dispatch REQUEST to _handle_request(peer, value) and PIECE to _handle_piece(peer, index, data); call _check_completion after processing each message, while still holding state_lock.
             if kind == MESSAGE_TYPES["BITFIELD"]:
                 peer.bitfield = value.copy()
                 self._update_interest(peer)
+                self._request_next(peer)
             elif kind == MESSAGE_TYPES["HAVE"]:
                 peer.bitfield[value] = True
                 self.logger.log("have", remote_id=peer.peer_id, piece_index=value)
                 self._update_interest(peer)
+                self._request_next(peer)
             elif kind == MESSAGE_TYPES["INTERESTED"]:
                 peer.peer_interested = True
                 self.logger.log("interested", remote_id=peer.peer_id)
@@ -185,9 +190,19 @@ class PeerProcess:
             elif kind == MESSAGE_TYPES["CHOKE"]:
                 peer.peer_choking = True
                 self.logger.log("choke", remote_id=peer.peer_id)
+                peer.pending_request = None
+                self._request_from_available_peers()
             elif kind == MESSAGE_TYPES["UNCHOKE"]:
                 peer.peer_choking = False
                 self.logger.log("unchoke", remote_id=peer.peer_id)
+                self._request_next(peer)
+            elif kind == MESSAGE_TYPES["REQUEST"]:
+                self._handle_request(peer, value)
+            elif kind == MESSAGE_TYPES["PIECE"]:
+                index, data = value
+                self._handle_piece(peer, index, data)
+
+            self._check_completion()
 
 
     def _update_interest(self, peer):
@@ -222,7 +237,10 @@ class PeerProcess:
             peer.pending_request = None
             peer.is_preferred = False
             peer.is_optimistic = False
-            #TODO: Dennis, if stop_event is not set, call _request_from_available_peers and _check_completion here while state_lock is still held.
+            # if piece we are waiting on from peer is freed, hand it off
+            if not self.stop_event.is_set():
+                self._request_from_available_peers()
+                self._check_completion()
 
         if not self.stop_event.is_set():
             print(
@@ -314,22 +332,46 @@ class PeerProcess:
             self.file = None
 
     def _request_next(self, peer):
-        #TODO: Dennis
         # Randomly select a piece this peer has that we lack and that is not
         # already requested from another peer. Reserve it in pending_request
         # before sending the request. Skip disconnected/choking peers or
         # peers that already have a pending request. Caller holds state_lock.
         # Takes: self, peer (remote Peer object)
         # Returns: None
-        pass
+        if self.complete_file_acquired or not peer.connected or peer.peer_choking or peer.pending_request is not None:
+            return
+
+        # collect reserved pieces
+        reserved = set()
+        for other in self.peers.values():
+            if other.pending_request is not None:
+                reserved.add(other.pending_request)
+
+        # collect pieces that peer could send us
+        candidates = []
+        for index in range(self.piece_count):
+            peer_has_it = peer.bitfield[index]
+            i_have_it = self.local_bitfield[index]
+            already_requested = index in reserved
+            if peer_has_it and not i_have_it and not already_requested:
+                candidates.append(index)
+
+        # useless peer
+        if len(candidates) == 0:
+            return
+
+        # choose random, reserve it before sending, then send
+        index = random.choice(candidates)
+        peer.pending_request = index
+        peer.request(index)
 
     def _request_from_available_peers(self):
-        #TODO: Dennis
         # Call _request_next for each peer to request pieces wherever possible.
         # Caller holds state_lock.
         # Takes: self
         # Returns: None
-        pass
+        for peer in self.peers.values():
+            self._request_next(peer)
 
     def _scheduler_loop(self):
         #Re-pick preferred neighbors every p seconds and the optimistic one every m seconds.      
